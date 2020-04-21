@@ -396,9 +396,10 @@ int main(void)
         }
         if (telnet_command_recv())
         {
+            putsUart0("recvd command\n");
             // put commands into current_user_input to save space; you can do this upon a PSH/ACK
             copy_command(current_user_input.strInput);
-            tokenize_string(&current_user_input);
+            putsUart0(current_user_input.strInput);
             // support limited number of commands as to not lose connection
             if (isCommand("help", current_user_input))
                 sendTcpMsg(data, 0x18, (uint8_t*)menu, false);
@@ -409,9 +410,9 @@ int main(void)
             }
             else
             {
-                putsUart0(current_user_input.temp_command);
-                putsUart0(" is either not specified or supported for telnet use.\n");
+                sendTcpMsg(data, 0x18, "that command is either not specified or supported for telnet use.\n", true);
             }
+            clear_command_recv();
         }
 
         // Packet processing

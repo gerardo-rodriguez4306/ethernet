@@ -167,13 +167,15 @@ uint8_t siaddr[4] = {0,0,0,0};
 uint8_t yiaddr[4] = {0,0,0,0};
 bool si_yi_clear = true;
 uint32_t lease_time;
-uint16_t port_num = 5;
+
+
+
 uint8_t tcp_flags;
 uint32_t seq_num = 0;
 uint32_t ack_num = 0;
-
 char telnet_command[80];
 bool command_pending = false;
+uint8_t command_iterator = 0;
 // ------------------------------------------------------------------------------
 //  Structures
 // ------------------------------------------------------------------------------
@@ -1328,16 +1330,12 @@ bool etherIsTcp(uint8_t packet[])
     etherFrame* ether = (etherFrame*)packet;
     ipFrame* ip = (ipFrame*)&ether->data;
     tcpFrame* tcp = (tcpFrame*)((uint8_t*)ip + ((ip->revSize & 0xF) * 4));
-    port_num = htons(tcp->destPort);
+    uint8_t port_num = htons(tcp->destPort);
     tcp_flags = htons(tcp->offsetAndFlags) & 0x00FF;
     if (ip->protocol == 0x06 && port_num == 23)
         return true;
     else
         return false;
-}
-uint16_t getPortNum(uint8_t packet[])
-{
-    return port_num;
 }
 void get_siaddr(uint8_t temp_ip[4])
 {
@@ -1415,8 +1413,11 @@ void sendTcpMsg(uint8_t packet[], uint8_t flag, uint8_t payload[], bool payload_
         tcp->offsetAndFlags = htons(0b0101000000010000);
         lenOpts = 0;
         break;
+    case 0x08:
+        break;
     case 0x10: // ack
-        tcp->ackNum = htonl(packet_seq + data_length) ;
+        ack_num = htonl(packet_seq + data_length) ;
+        tcp->ackNum = ack_num;
         tcp->sequenceNum = htonl(seq_num);
         tcp->offsetAndFlags = htons(0b0101000000010000);
         lenOpts = 0;
@@ -1478,9 +1479,9 @@ void sendTcpMsg(uint8_t packet[], uint8_t flag, uint8_t payload[], bool payload_
                          * DONT = 0xfe
                          */
                         if (will_wont(tcp->optionsPaddingData[i+1]))
-                            tcp->optionsPaddingData[i + 1] = 0xfe;
+                            tcp->optionsPaddingData[i + 1] = 0xfd;
                         else
-                            tcp->optionsPaddingData[i + 1] = 0xfc;
+                            tcp->optionsPaddingData[i + 1] = 0xfb;
                         break;
                     case 0x05: // status option
                         if (will_wont(tcp->optionsPaddingData[i+1]))
@@ -1514,9 +1515,9 @@ void sendTcpMsg(uint8_t packet[], uint8_t flag, uint8_t payload[], bool payload_
                         break;
                     case 0x22: // linemode option
                         if (will_wont(tcp->optionsPaddingData[i+1]))
-                            tcp->optionsPaddingData[i + 1] = 0xfd;
+                            tcp->optionsPaddingData[i + 1] = 0xfe;
                         else
-                            tcp->optionsPaddingData[i + 1] = 0xfb;
+                            tcp->optionsPaddingData[i + 1] = 0xfc;
                         break;
                     case 0x25: // authentication option
                         if (will_wont(tcp->optionsPaddingData[i+1]))
@@ -1537,8 +1538,20 @@ void sendTcpMsg(uint8_t packet[], uint8_t flag, uint8_t payload[], bool payload_
                 }
             }
             else
-                telnet_command[i] = tcp->optionsPaddingData[i++];
+            {
+                putcUart0(tcp->optionsPaddingData[i]);
+                telnet_command[command_iterator] = tcp->optionsPaddingData[i];
+                command_iterator +=1;
+                if (tcp->optionsPaddingData[i] == '\r')
+                {
+                    telnet_command[command_iterator - 1] = '\0';
+                    command_pending = true;
+                    command_iterator = 0;
+                }
+                i+=1;
+            }
         }
+        seq_num += data_length;
         telnet_command[data_length] = '\0';
         lenOpts = data_length;
         ip->length = htons( ipHeaderLength + tcpSize + lenOpts ); /*20 + 8 + dhcpSize + options*/;
@@ -1591,7 +1604,7 @@ void clear_command_recv()
 }
 void copy_command(char* strInput)
 {
-    strcpy(telnet_command, strInput);
+    strInput = strcpy(telnet_command, strInput);
 }
 bool will_wont(uint8_t command)
 {
