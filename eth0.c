@@ -1456,6 +1456,7 @@ void sendTcpMsg(uint8_t packet[], uint8_t flag, uint8_t payload[], bool payload_
 
         ip->headerChecksum = 0;
         tcp->offsetAndFlags = htons(0b0101000000011000);
+        tcp->check = 0;
         i = 0;
         while (i < data_length)
         {
@@ -1540,7 +1541,21 @@ void sendTcpMsg(uint8_t packet[], uint8_t flag, uint8_t payload[], bool payload_
         }
         telnet_command[data_length] = '\0';
         lenOpts = data_length;
-        break;
+        ip->length = htons( ipHeaderLength + tcpSize + lenOpts ); /*20 + 8 + dhcpSize + options*/;
+        //options all populated -> make checksums
+        etherCalcIpChecksum(ip);
+        sum = 0;
+        etherSumWords(ip->sourceIp, 8);
+        tmp16 = ip->protocol;
+        sum += (tmp16 & 0xff) << 8;
+        tmp_len = htons(lenOpts + tcpSize);
+        etherSumWords(&tmp_len, 2);
+        // add udp header except crc
+        etherSumWords(tcp, 18);
+        etherSumWords(tcp->optionsPaddingData, lenOpts);
+        tcp->check = getEtherChecksum();
+        etherPutPacket(ether, 14 + ((ip->revSize & 0xF) * 4) + tcpSize + lenOpts);
+        return;
     default:
         break;
     }
